@@ -15,6 +15,7 @@ from telegram.ext import (
 # =========================
 
 TOKEN = "8677134850:AAF7ZQKmrkXkh0j7x2cSBVVc8EdS6UrE1cE"
+
 URL = "https://www.ticketmaster.com.mx/api/quickpicks/1400642AA32C84D5/list?sort=price&offset=0&qty=2&primary=true&resale=false&defaultToOne=true&tids=000000000001%2C000001800001%2C000002000001&resaleProvider=INTL"
 
 CHECK_MIN = 30
@@ -67,9 +68,17 @@ def cargar_usuarios():
     try:
 
         with open(USUARIOS_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
 
-    except:
+            print(f"📂 Usuarios cargados: {len(data)}")
+
+            return data
+
+    except Exception as e:
+
+        print("⚠️ No se pudo cargar usuarios.json")
+        print(e)
+
         return {}
 
 # =========================
@@ -78,8 +87,17 @@ def cargar_usuarios():
 
 def guardar_usuarios(data):
 
-    with open(USUARIOS_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    try:
+
+        with open(USUARIOS_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+
+        print(f"💾 Usuarios guardados: {len(data)}")
+
+    except Exception as e:
+
+        print("❌ Error guardando usuarios")
+        print(e)
 
 # =========================
 # USERS
@@ -161,7 +179,8 @@ async def enviar_alertas(bot, ticket, tipo, actividad=False):
 
         except Exception as e:
 
-            print("❌ Error usuario:", e)
+            print(f"❌ Error enviando alerta a {chat_id}")
+            print(e)
 
 # =========================
 # REVISAR TICKETS
@@ -295,11 +314,13 @@ async def revisar_tickets(bot):
                 actividad
             )
 
-            print("✅ ALERTA GLOBAL:", ticket_id)
+            print("🎟 Nuevo ticket detectado")
+            print(ticket)
 
     except Exception as e:
 
-        print("❌ ERROR:", e)
+        print("❌ ERROR GENERAL")
+        print(e)
 
         await asyncio.sleep(90)
 
@@ -311,6 +332,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = str(update.effective_chat.id)
 
+    print(f"👤 /start detectado: {chat_id}")
+
     if chat_id not in usuarios:
 
         usuarios[chat_id] = {
@@ -319,6 +342,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         guardar_usuarios(usuarios)
+
+        print(f"✅ Usuario registrado: {chat_id}")
+
+    else:
+
+        print(f"ℹ️ Usuario ya existente: {chat_id}")
 
     mensaje = """
 🤖 BTS BOT ACTIVADO
@@ -347,6 +376,8 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         guardar_usuarios(usuarios)
 
+        print(f"🛑 Usuario eliminado: {chat_id}")
+
     await update.message.reply_text(
         "🛑 Alertas desactivadas"
     )
@@ -366,6 +397,8 @@ async def precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         usuarios[chat_id]["precio_max"] = nuevo
 
         guardar_usuarios(usuarios)
+
+        print(f"💰 Precio actualizado {chat_id}: {nuevo}")
 
         await update.message.reply_text(
             f"💰 Precio máximo actualizado: ${nuevo}"
@@ -398,6 +431,8 @@ async def zonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         guardar_usuarios(usuarios)
 
+        print(f"📍 Zonas actualizadas {chat_id}: {lista}")
+
         await update.message.reply_text(
             f"📍 Zonas actualizadas:\n{lista}"
         )
@@ -428,6 +463,9 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mensaje = f"""
 🤖 STATUS
+
+👥 Usuarios registrados:
+{len(usuarios)}
 
 💰 Precio máximo:
 ${data['precio_max']}
@@ -483,6 +521,8 @@ async def monitor(bot):
 
                 except:
                     pass
+
+            print("💓 Heartbeat enviado")
 
             heartbeat_counter = 0
 
@@ -549,6 +589,7 @@ async def main():
     bot = Bot(token=TOKEN)
 
     print("🔥 BTS MULTIUSUARIO INICIADO 🔥")
+    print(f"👥 Usuarios actuales: {len(usuarios)}")
 
     asyncio.create_task(
         monitor(bot)
