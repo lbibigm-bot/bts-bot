@@ -1,4 +1,5 @@
 import asyncio
+import json
 import random
 import requests
 
@@ -14,13 +15,8 @@ from telegram.ext import (
 # =========================
 
 TOKEN = "8677134850:AAF7ZQKmrkXkh0j7x2cSBVVc8EdS6UrE1cE"
-CHAT_ID = "445822060"
 
 URL = "https://www.ticketmaster.com.mx/api/quickpicks/1400642AA32C84D5/list?sort=price&offset=0&qty=2&primary=true&resale=false&defaultToOne=true&tids=000000000001%2C000001800001%2C000002000001&resaleProvider=INTL"
-
-# =========================
-# INTERVALOS
-# =========================
 
 CHECK_MIN = 30
 CHECK_MAX = 45
@@ -29,16 +25,7 @@ TURBO_MIN = 10
 TURBO_MAX = 15
 
 # =========================
-# ESTADO DINÁMICO
-# =========================
-
-estado = {
-    "precio_max": 10000,
-    "zonas": ["Cancha", "VIP", "General"]
-}
-
-# =========================
-# HEADERS HUMANOS
+# HEADERS
 # =========================
 
 HEADERS = {
@@ -67,6 +54,41 @@ turbo_cycles = 0
 heartbeat_counter = 0
 
 # =========================
+# JSON USUARIOS
+# =========================
+
+USUARIOS_FILE = "usuarios.json"
+
+# =========================
+# LOAD USERS
+# =========================
+
+def cargar_usuarios():
+
+    try:
+
+        with open(USUARIOS_FILE, "r") as f:
+            return json.load(f)
+
+    except:
+        return {}
+
+# =========================
+# SAVE USERS
+# =========================
+
+def guardar_usuarios(data):
+
+    with open(USUARIOS_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+# =========================
+# USERS
+# =========================
+
+usuarios = cargar_usuarios()
+
+# =========================
 # CLASIFICADOR
 # =========================
 
@@ -89,35 +111,37 @@ def clasificar(price, section):
     return "ℹ️ DISPONIBLE"
 
 # =========================
-# FILTRO ZONAS
+# ALERTAS
 # =========================
 
-def zona_valida(section):
-
-    zonas = estado["zonas"]
-
-    if not zonas:
-        return True
-
-    section = section.lower()
-
-    return any(
-        zona.lower() in section
-        for zona in zonas
-    )
-
-# =========================
-# ALERTA TELEGRAM
-# =========================
-
-async def enviar_alerta(bot, ticket, tipo, actividad=False):
+async def enviar_alertas(bot, ticket, tipo, actividad=False):
 
     actividad_msg = ""
 
     if actividad:
         actividad_msg = "🔥 ACTIVIDAD DETECTADA\n"
 
-    mensaje = f"""
+    for chat_id, config in usuarios.items():
+
+        try:
+
+            precio_max = config["precio_max"]
+            zonas = config["zonas"]
+
+            if ticket["price"] > precio_max:
+                continue
+
+            section = ticket["section"].lower()
+
+            if zonas:
+
+                if not any(
+                    zona.lower() in section
+                    for zona in zonas
+                ):
+                    continue
+
+            mensaje = f"""
 {tipo}
 
 {actividad_msg}
@@ -129,10 +153,16 @@ async def enviar_alerta(bot, ticket, tipo, actividad=False):
 {ticket['link']}
 """
 
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text=mensaje
-    )
+            await bot.send_message(
+                chat_id=chat_id,
+                text=mensaje
+            )
+
+            print(f"✅ ALERTA enviada a {chat_id}")
+
+        except Exception as e:
+
+            print("❌ Error usuario:", e)
 
 # =========================
 # REVISAR TICKETS
@@ -154,7 +184,7 @@ async def revisar_tickets(bot):
         )
 
         # =========================
-        # DETECTOR BLOQUEOS
+        # BLOQUEOS
         # =========================
 
         if response.status_code in [403, 429]:
@@ -172,10 +202,6 @@ async def revisar_tickets(bot):
 
             return
 
-        # =========================
-        # JSON SEGURO
-        # =========================
-
         try:
 
             data = response.json()
@@ -192,10 +218,6 @@ async def revisar_tickets(bot):
 
         picks = data.get("picks", [])
 
-        # =========================
-        # RESPUESTA VACÍA
-        # =========================
-
         if not isinstance(picks, list):
 
             print("⚠️ Respuesta sospechosa")
@@ -209,7 +231,7 @@ async def revisar_tickets(bot):
         actividad = False
 
         # =========================
-        # ACTIVIDAD DETECTADA
+        # ACTIVIDAD
         # =========================
 
         if current_count > last_count + 5:
@@ -221,13 +243,20 @@ async def revisar_tickets(bot):
 
             print("🔥 ACTIVIDAD DETECTADA")
 
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                text=(
-                    "🔥 ACTIVIDAD DETECTADA EN TM 🔥\n"
-                    "⚡ MODO TURBO ACTIVADO"
-                )
-            )
+            for chat_id in usuarios:
+
+                try:
+
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=(
+                            "🔥 ACTIVIDAD DETECTADA EN TM 🔥\n"
+                            "⚡ MODO TURBO ACTIVADO"
+                        )
+                    )
+
+                except:
+                    pass
 
         last_count = current_count
 
@@ -246,12 +275,6 @@ async def revisar_tickets(bot):
             section = p.get("section", "")
             row = p.get("row", "")
 
-            if price > estado["precio_max"]:
-                continue
-
-            if not zona_valida(section):
-                continue
-
             seen_ids.add(ticket_id)
 
             tipo = clasificar(price, section)
@@ -266,14 +289,14 @@ async def revisar_tickets(bot):
                 )
             }
 
-            await enviar_alerta(
+            await enviar_alertas(
                 bot,
                 ticket,
                 tipo,
                 actividad
             )
 
-            print("✅ ALERTA:", ticket_id)
+            print("✅ ALERTA GLOBAL:", ticket_id)
 
     except Exception as e:
 
@@ -282,16 +305,68 @@ async def revisar_tickets(bot):
         await asyncio.sleep(90)
 
 # =========================
-# COMANDO PRECIO
+# START
+# =========================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    chat_id = str(update.effective_chat.id)
+
+    if chat_id not in usuarios:
+
+        usuarios[chat_id] = {
+            "precio_max": 10000,
+            "zonas": ["Cancha", "VIP", "General"]
+        }
+
+        guardar_usuarios(usuarios)
+
+    mensaje = """
+🤖 BTS BOT ACTIVADO
+
+Comandos:
+
+/precio 4000
+/zonas cancha,vip
+/status
+/stop
+"""
+
+    await update.message.reply_text(mensaje)
+
+# =========================
+# STOP
+# =========================
+
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    chat_id = str(update.effective_chat.id)
+
+    if chat_id in usuarios:
+
+        del usuarios[chat_id]
+
+        guardar_usuarios(usuarios)
+
+    await update.message.reply_text(
+        "🛑 Alertas desactivadas"
+    )
+
+# =========================
+# PRECIO
 # =========================
 
 async def precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
+        chat_id = str(update.effective_chat.id)
+
         nuevo = int(context.args[0])
 
-        estado["precio_max"] = nuevo
+        usuarios[chat_id]["precio_max"] = nuevo
+
+        guardar_usuarios(usuarios)
 
         await update.message.reply_text(
             f"💰 Precio máximo actualizado: ${nuevo}"
@@ -304,12 +379,14 @@ async def precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # =========================
-# COMANDO ZONAS
+# ZONAS
 # =========================
 
 async def zonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
+
+        chat_id = str(update.effective_chat.id)
 
         texto = " ".join(context.args)
 
@@ -318,7 +395,9 @@ async def zonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for z in texto.split(",")
         ]
 
-        estado["zonas"] = lista
+        usuarios[chat_id]["zonas"] = lista
+
+        guardar_usuarios(usuarios)
 
         await update.message.reply_text(
             f"📍 Zonas actualizadas:\n{lista}"
@@ -336,26 +415,38 @@ async def zonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    chat_id = str(update.effective_chat.id)
+
+    if chat_id not in usuarios:
+
+        await update.message.reply_text(
+            "Usa /start primero"
+        )
+
+        return
+
+    data = usuarios[chat_id]
+
     mensaje = f"""
 🤖 STATUS
 
 💰 Precio máximo:
-${estado['precio_max']}
+${data['precio_max']}
 
 📍 Zonas:
-{estado['zonas']}
+{data['zonas']}
 
 🛡 Anti-bloqueo:
 ACTIVO
 
-⚡ Turbo mode:
+⚡ Turbo:
 {"ACTIVO" if turbo_mode else "NORMAL"}
 """
 
     await update.message.reply_text(mensaje)
 
 # =========================
-# LOOP PRINCIPAL
+# MONITOR
 # =========================
 
 async def monitor(bot):
@@ -376,21 +467,28 @@ async def monitor(bot):
 
         if heartbeat_counter >= 90:
 
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                text="""
+            for chat_id in usuarios:
+
+                try:
+
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text="""
 🤖 BOT ACTIVO
 
 🛡 Anti-bloqueo activo
 ⏳ Monitoreando Ticketmaster
 ⚡ Estado operativo
 """
-            )
+                    )
+
+                except:
+                    pass
 
             heartbeat_counter = 0
 
         # =========================
-        # MODO TURBO
+        # TURBO
         # =========================
 
         if turbo_mode:
@@ -430,6 +528,14 @@ async def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(
+        CommandHandler("start", start)
+    )
+
+    app.add_handler(
+        CommandHandler("stop", stop)
+    )
+
+    app.add_handler(
         CommandHandler("precio", precio)
     )
 
@@ -443,18 +549,11 @@ async def main():
 
     bot = Bot(token=TOKEN)
 
-    print("🔥 BOT BTS PRO INICIADO 🔥")
-
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text="🤖 BOT BTS PRO ACTIVO 🤖"
-    )
+    print("🔥 BTS MULTIUSUARIO INICIADO 🔥")
 
     asyncio.create_task(
         monitor(bot)
     )
-
-    print("🚀 Comandos activos")
 
     await app.initialize()
     await app.start()
