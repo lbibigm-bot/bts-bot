@@ -337,7 +337,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in usuarios:
 
         usuarios[chat_id] = {
-            "precio_max": 10000,
+            "precio_max": 14000,
             "zonas": ["Cancha", "VIP", "General"]
         }
 
