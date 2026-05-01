@@ -13,13 +13,20 @@ from telegram.ext import (
 # CONFIG
 # =========================
 
-TOKEN = "8677134850:AAHUI8hTpuUguiiybxogpoJleD-urhHKNGI"
+TOKEN = "8677134850:AAF7ZQKmrkXkh0j7x2cSBVVc8EdS6UrE1cE"
 CHAT_ID = "445822060"
 
 URL = "https://www.ticketmaster.com.mx/api/quickpicks/1400642AA32C84D5/list?sort=price&offset=0&qty=2&primary=true&resale=false&defaultToOne=true&tids=000000000001%2C000001800001%2C000002000001&resaleProvider=INTL"
 
-CHECK_MIN = 18
-CHECK_MAX = 25
+# =========================
+# INTERVALOS
+# =========================
+
+CHECK_MIN = 30
+CHECK_MAX = 45
+
+TURBO_MIN = 10
+TURBO_MAX = 15
 
 # =========================
 # ESTADO DINÁMICO
@@ -31,12 +38,17 @@ estado = {
 }
 
 # =========================
-# HEADERS
+# HEADERS HUMANOS
 # =========================
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/135.0.0.0 Safari/537.36"
+    ),
     "Accept": "application/json",
+    "Accept-Language": "es-MX,es;q=0.9",
     "Referer": "https://www.ticketmaster.com.mx/"
 }
 
@@ -45,8 +57,14 @@ HEADERS = {
 # =========================
 
 seen_ids = set()
+
 last_count = 0
 blocked_counter = 0
+
+turbo_mode = False
+turbo_cycles = 0
+
+heartbeat_counter = 0
 
 # =========================
 # CLASIFICADOR
@@ -71,7 +89,7 @@ def clasificar(price, section):
     return "ℹ️ DISPONIBLE"
 
 # =========================
-# ZONAS
+# FILTRO ZONAS
 # =========================
 
 def zona_valida(section):
@@ -89,7 +107,7 @@ def zona_valida(section):
     )
 
 # =========================
-# ALERTA
+# ALERTA TELEGRAM
 # =========================
 
 async def enviar_alerta(bot, ticket, tipo, actividad=False):
@@ -117,13 +135,15 @@ async def enviar_alerta(bot, ticket, tipo, actividad=False):
     )
 
 # =========================
-# CHECK TICKETS
+# REVISAR TICKETS
 # =========================
 
 async def revisar_tickets(bot):
 
     global last_count
     global blocked_counter
+    global turbo_mode
+    global turbo_cycles
 
     try:
 
@@ -133,16 +153,18 @@ async def revisar_tickets(bot):
             timeout=15
         )
 
-        data = response.json()
+        # =========================
+        # DETECTOR BLOQUEOS
+        # =========================
 
         if response.status_code in [403, 429]:
 
             blocked_counter += 1
 
-            espera = 120
+            espera = 180
 
             if blocked_counter >= 3:
-                espera = 300
+                espera = 420
 
             print(f"⚠️ Bloqueo detectado. Esperando {espera}s")
 
@@ -150,24 +172,68 @@ async def revisar_tickets(bot):
 
             return
 
+        # =========================
+        # JSON SEGURO
+        # =========================
+
+        try:
+
+            data = response.json()
+
+        except:
+
+            print("⚠️ JSON inválido")
+
+            await asyncio.sleep(120)
+
+            return
+
         blocked_counter = 0
 
         picks = data.get("picks", [])
+
+        # =========================
+        # RESPUESTA VACÍA
+        # =========================
+
+        if not isinstance(picks, list):
+
+            print("⚠️ Respuesta sospechosa")
+
+            await asyncio.sleep(120)
+
+            return
 
         current_count = len(picks)
 
         actividad = False
 
+        # =========================
+        # ACTIVIDAD DETECTADA
+        # =========================
+
         if current_count > last_count + 5:
 
             actividad = True
 
+            turbo_mode = True
+            turbo_cycles = 20
+
+            print("🔥 ACTIVIDAD DETECTADA")
+
             await bot.send_message(
                 chat_id=CHAT_ID,
-                text="🔥 ACTIVIDAD DETECTADA EN TM 🔥"
+                text=(
+                    "🔥 ACTIVIDAD DETECTADA EN TM 🔥\n"
+                    "⚡ MODO TURBO ACTIVADO"
+                )
             )
 
         last_count = current_count
+
+        # =========================
+        # LOOP TICKETS
+        # =========================
 
         for p in picks:
 
@@ -194,7 +260,10 @@ async def revisar_tickets(bot):
                 "price": price,
                 "section": section,
                 "row": row,
-                "link": f"https://www.ticketmaster.com.mx/quickpicks/{ticket_id}"
+                "link": (
+                    "https://www.ticketmaster.com.mx/"
+                    f"quickpicks/{ticket_id}"
+                )
             }
 
             await enviar_alerta(
@@ -210,10 +279,10 @@ async def revisar_tickets(bot):
 
         print("❌ ERROR:", e)
 
-        await asyncio.sleep(60)
+        await asyncio.sleep(90)
 
 # =========================
-# COMANDOS TELEGRAM
+# COMANDO PRECIO
 # =========================
 
 async def precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -234,6 +303,8 @@ async def precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Uso: /precio 4000"
         )
 
+# =========================
+# COMANDO ZONAS
 # =========================
 
 async def zonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -260,6 +331,8 @@ async def zonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # =========================
+# STATUS
+# =========================
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -271,6 +344,12 @@ ${estado['precio_max']}
 
 📍 Zonas:
 {estado['zonas']}
+
+🛡 Anti-bloqueo:
+ACTIVO
+
+⚡ Turbo mode:
+{"ACTIVO" if turbo_mode else "NORMAL"}
 """
 
     await update.message.reply_text(mensaje)
@@ -281,16 +360,64 @@ ${estado['precio_max']}
 
 async def monitor(bot):
 
+    global turbo_mode
+    global turbo_cycles
+    global heartbeat_counter
+
     while True:
 
         await revisar_tickets(bot)
 
-        espera = random.randint(
-            CHECK_MIN,
-            CHECK_MAX
-        )
+        # =========================
+        # HEARTBEAT
+        # =========================
 
-        print(f"⏳ Esperando {espera}s")
+        heartbeat_counter += 1
+
+        if heartbeat_counter >= 90:
+
+            await bot.send_message(
+                chat_id=CHAT_ID,
+                text="""
+🤖 BOT ACTIVO
+
+🛡 Anti-bloqueo activo
+⏳ Monitoreando Ticketmaster
+⚡ Estado operativo
+"""
+            )
+
+            heartbeat_counter = 0
+
+        # =========================
+        # MODO TURBO
+        # =========================
+
+        if turbo_mode:
+
+            espera = random.randint(
+                TURBO_MIN,
+                TURBO_MAX
+            )
+
+            turbo_cycles -= 1
+
+            print(f"⚡ TURBO MODE {espera}s")
+
+            if turbo_cycles <= 0:
+
+                turbo_mode = False
+
+                print("🛡 Volviendo a modo seguro")
+
+        else:
+
+            espera = random.randint(
+                CHECK_MIN,
+                CHECK_MAX
+            )
+
+            print(f"⏳ Esperando {espera}s")
 
         await asyncio.sleep(espera)
 
