@@ -1,15 +1,17 @@
-import requests
+import asyncio
 from telegram import Bot
 
 TOKEN = "8677134850:AAHUI8hTpuUguiiybxogpoJleD-urhHKNGI"
 CHAT_ID = "445822060"
 
-bot = Bot(token=TOKEN)
+async def main():
+    bot = Bot(token=TOKEN)
 
-bot.send_message(
-    chat_id=CHAT_ID,
-    text="🚨 Bot conectado correctamente 🚨"
-)
+    await bot.send_message(
+        chat_id=CHAT_ID,
+        text="🚨 Ahora sí funciona 🚨"
+    )
 
-print("Mensaje enviado a Telegram")
-text="🚨 Prueba final funcionando 🚨"
+    print("Mensaje enviado correctamente")
+
+asyncio.run(main())
