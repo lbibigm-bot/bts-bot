@@ -15,7 +15,6 @@ from telegram.ext import (
 # =========================
 
 TOKEN = "8677134850:AAF7ZQKmrkXkh0j7x2cSBVVc8EdS6UrE1cE"
-
 URL = "https://www.ticketmaster.com.mx/api/quickpicks/1400642AA32C84D5/list?sort=price&offset=0&qty=2&primary=true&resale=false&defaultToOne=true&tids=000000000001%2C000001800001%2C000002000001&resaleProvider=INTL"
 
 CHECK_MIN = 30
